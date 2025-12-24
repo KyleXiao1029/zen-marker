@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "ZenBookmarks - Modern Bookmark Manager",
+  "version": "1.0.0",
+  "description": "A beautiful, Apple-style bookmark manager for Chrome.",
+  "permissions": [
+    "bookmarks",
+    "tabs",
+    "favicon",
+    "contextMenus"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "ZenBookmarks"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
