@@ -1,4 +1,4 @@
-# ZenBookmarks - Chrome Extension
+# ZenMarker - Chrome Extension
 
 这是一个遵循苹果现代 UI 风格的谷歌浏览器书签管理扩展。
 

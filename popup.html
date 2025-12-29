@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ZenBookmarks</title>
+    <title>ZenMarker</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
@@ -64,14 +64,31 @@
 
       <footer class="app-footer">
         <div class="footer-actions">
-           <button id="open-manager-btn" class="icon-button" title="Open Dashboard" style="margin-right: auto; color: var(--text-secondary);">
-             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-           </button>
+          <button
+            id="open-manager-btn"
+            class="icon-button"
+            title="Open Dashboard"
+            style="margin-right: auto; color: var(--text-secondary)"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <rect x="3" y="3" width="7" height="7"></rect>
+              <rect x="14" y="3" width="7" height="7"></rect>
+              <rect x="14" y="14" width="7" height="7"></rect>
+              <rect x="3" y="14" width="7" height="7"></rect>
+            </svg>
+          </button>
           <button id="create-folder-btn" class="text-button">New Folder</button>
         </div>
       </footer>
     </div>
-    
+
     <!-- Modal -->
     <div id="modal-overlay" class="modal-overlay">
       <div class="modal">
@@ -80,7 +97,7 @@
           <p class="modal-desc" id="modal-desc"></p>
         </div>
         <div class="modal-body" id="modal-body">
-             <!-- Inputs injected here -->
+          <!-- Inputs injected here -->
         </div>
         <div class="modal-footer">
           <button id="modal-cancel" class="modal-btn cancel">Cancel</button>
