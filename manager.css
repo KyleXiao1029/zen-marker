@@ -181,13 +181,6 @@ body {
   align-items: center;
 }
 
-.lang-switch-btn {
-    width: auto;
-    padding: 0 12px;
-    font-size: 13px;
-    font-weight: 600;
-}
-
 #search-input {
   width: 100%;
   padding: 12px 12px 12px 40px;
@@ -336,6 +329,14 @@ body {
 .delete-btn:hover {
   color: #ff3b30;
   border-color: #ff3b30;
+}
+
+.lang-switch-btn {
+  width: auto;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 /* Modal & Overlay */
