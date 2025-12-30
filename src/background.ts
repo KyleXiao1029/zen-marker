@@ -10,12 +10,12 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId === "add-to-bookmarks") {
+  if (info.menuItemId === "add-to-bookmarks" && tab && tab.url) {
     // Add to Bookmarks Bar (ID '1') by default
     chrome.bookmarks.create(
       {
         parentId: "1",
-        title: tab.title,
+        title: tab.title || "Untitled",
         url: tab.url,
       },
       () => {

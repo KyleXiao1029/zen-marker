@@ -3,7 +3,7 @@
   "name": "ZenMarker",
   "version": "1.0.0",
   "description": "A beautiful, Apple-style bookmark manager for Chrome.",
-  "permissions": ["bookmarks", "tabs", "favicon", "contextMenus"],
+  "permissions": ["bookmarks", "tabs", "favicon", "contextMenus", "storage"],
   "action": {
     "default_popup": "popup.html",
     "default_title": "ZenMarker"
