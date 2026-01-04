@@ -23,11 +23,12 @@ export function SortableItem({ id, children, style, ...props }: SortableItemProp
   });
 
   const combinedStyle: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
+    transform: isDragging ? undefined : CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : 1,
+    opacity: isDragging ? 0 : 1,
     zIndex: isDragging ? 999 : 'auto',
     cursor: isDragging ? 'grabbing' : undefined,
+    visibility: isDragging ? 'hidden' : undefined,
     ...style,
   };
 

@@ -14,24 +14,17 @@ import {
   sortableKeyboardCoordinates,
   rectSortingStrategy,
 } from '@dnd-kit/sortable';
+import { DragOverlay, DragStartEvent } from '@dnd-kit/core';
 import { SortableItem } from './SortableItem';
+import { BookmarkContent } from './BookmarkContent';
+import { BookmarkNode, SearchEngine } from './types';
 import { Modal } from '../components/Modal';
+import { SearchPopup } from './SearchPopup';
 import { t, setLang, getLang } from '../utils/i18n';
 import './manager.css';
+import './overlay.css';
 
-interface BookmarkNode {
-  id: string;
-  parentId?: string;
-  url?: string;
-  title: string;
-  children?: BookmarkNode[];
-}
 
-interface SearchEngine {
-  id: string;
-  name: string;
-  url: string; // URL template with {query} placeholder
-}
 
 export default function Manager() {
   const [currentFolderId, setCurrentFolderId] = useState("1"); // Bookmarks Bar
@@ -40,6 +33,7 @@ export default function Manager() {
   const [breadcrumbs, setBreadcrumbs] = useState<{id: string, title: string}[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [currentLang, setCurrentLang] = useState(getLang());
+  const [activeId, setActiveId] = useState<string | null>(null);
   
   // Search engines state
   const [searchEngines, setSearchEngines] = useState<SearchEngine[]>([]);
@@ -47,6 +41,7 @@ export default function Manager() {
   
   // Modal
   const [modalOpen, setModalOpen] = useState(false);
+  const [searchPopupOpen, setSearchPopupOpen] = useState(false);
   const [modalConfig, setModalConfig] = useState<any>({});
 
   // Menus
@@ -65,8 +60,18 @@ export default function Manager() {
     })
   );
 
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(event.active.id as string);
+  };
+
+  const handleDragCancel = () => {
+    setActiveId(null);
+  };
+
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
+    
+    setActiveId(null);
 
     if (over && active.id !== over.id) {
         const oldIndex = nodes.findIndex((item) => item.id === active.id);
@@ -78,7 +83,15 @@ export default function Manager() {
         // Persist to Chrome Bookmarks
         if (typeof chrome !== 'undefined' && chrome.bookmarks) {
             // Note: browser persistence is asynchronous
-            chrome.bookmarks.move(active.id as string, { index: newIndex }, () => {
+            // When moving an item to a higher index (down the list), Chrome inserts BEFORE the item at that index.
+            // But since the item itself is still in the list (conceptually), to place it AFTER the target,
+            // we often need to increment the index by 1.
+            let chromeIndex = newIndex;
+            if (newIndex > oldIndex) {
+                chromeIndex++;
+            }
+
+            chrome.bookmarks.move(active.id as string, { index: chromeIndex }, () => {
                 // Determine if we need to refresh the tree (only if a folder was moved)
                 const movedNode = nodes[oldIndex];
                 if (movedNode && !movedNode.url) {
@@ -104,6 +117,7 @@ export default function Manager() {
       loadTree();
       loadContent(currentFolderId);
       loadSearchEngines();
+      loadSettings();
   }, []);
 
   useEffect(() => {
@@ -181,17 +195,17 @@ export default function Manager() {
       {
         id: '1',
         name: 'Google',
-        url: 'https://www.google.com/search?q={query}'
+        url: 'https://www.google.com/search?q={z}'
       },
       {
         id: '2',
         name: 'Bing',
-        url: 'https://www.bing.com/search?q={query}'
+        url: 'https://www.bing.com/search?q={z}'
       },
       {
         id: '3',
         name: '百度',
-        url: 'https://www.baidu.com/s?wd={query}'
+        url: 'https://www.baidu.com/s?wd={z}'
       }
     ];
     setSearchEngines(defaultEngines);
@@ -207,11 +221,25 @@ export default function Manager() {
     }
   };
 
+  const loadSettings = () => {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
+        chrome.storage.sync.get(['lang'], (result) => {
+            if (result.lang) {
+                setLang(result.lang);
+                setCurrentLang(result.lang); 
+            }
+        });
+    }
+  };
+
   const handleLangSelect = (lang: 'en' | 'zh') => {
       setLang(lang);
       setCurrentLang(lang);
       setLangMenuOpen(false);
-      window.location.reload(); 
+      
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
+          chrome.storage.sync.set({ lang });
+      }
   };
 
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
@@ -419,7 +447,7 @@ export default function Manager() {
     const query = searchQueries[engine.id];
     if (!query) return;
     
-    const searchUrl = engine.url.replace('{query}', encodeURIComponent(query));
+    const searchUrl = engine.url.replace('{z}', encodeURIComponent(query));
     chrome.tabs.create({ url: searchUrl });
     
     // Clear the search query after searching
@@ -430,11 +458,7 @@ export default function Manager() {
     setSearchQueries(prev => ({ ...prev, [engineId]: value }));
   };
 
-  const handleSearchKeyPress = (e: React.KeyboardEvent, engine: SearchEngine) => {
-    if (e.key === 'Enter') {
-      handleSearch(engine);
-    }
-  };
+
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -498,6 +522,8 @@ export default function Manager() {
       }
   };
 
+
+
   return (
     <div className="app-container">
        <aside className="sidebar">
@@ -544,178 +570,132 @@ export default function Manager() {
                        onChange={e => setSearchQuery(e.target.value)}
                    />
                </div>
-               <div className="view-options" style={{position: 'relative'}}>
-                   <button 
-                       className="action-btn" 
-                       style={{width: '32px', height: '32px', border: 'none', background: 'transparent'}}
-                       onClick={(e) => {
-                           e.stopPropagation();
-                           setLangMenuOpen(!langMenuOpen);
-                           setContextMenu(null);
-                       }}
-                       title={currentLang === 'en' ? 'Switch Language' : '切换语言'}
-                   >
-                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
-                   </button>
-                   
-                   {langMenuOpen && (
-                       <div className="dropdown-menu">
-                           <div className={`dropdown-item ${currentLang === 'en' ? 'active' : ''}`} onClick={() => handleLangSelect('en')}>
-                               English
-                           </div>
-                            <div className={`dropdown-item ${currentLang === 'zh' ? 'active' : ''}`} onClick={() => handleLangSelect('zh')}>
-                               中文
-                           </div>
-                       </div>
-                   )}
-               </div>
-           </div>
+                <div className="view-options" style={{position: 'relative', display: 'flex', gap: '8px', alignItems: 'center'}}>
+                    <button 
+                        className="action-btn" 
+                        style={{width: '32px', height: '32px', border: 'none', background: 'transparent', borderRadius: '50%'}}
+                        onClick={() => setSearchPopupOpen(true)}
+                        title={t('searchTools')}
+                    >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                           <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                        </svg>
+                    </button>
 
-           <div className="main-layout">
-                {/* Left: Bookmarks */}
-                <div className="bookmarks-section" onContextMenu={handleContextMenu}>
-                    {!searchQuery && (
-                        <div className="breadcrumbs">
-                            {breadcrumbs.map((crumb, idx) => (
-                                <div 
-                                     key={crumb.id} 
-                                     className={`breadcrumb-item ${idx===breadcrumbs.length-1?'active':''}`}
-                                     onClick={() => setCurrentFolderId(crumb.id)}
-                                 >
-                                    {crumb.title} {idx < breadcrumbs.length-1 && '/'}
-                                </div>
-                            ))}
+                    <button 
+                        className="action-btn" 
+                        style={{width: '32px', height: '32px', border: 'none', background: 'transparent'}}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setLangMenuOpen(!langMenuOpen);
+                            setContextMenu(null);
+                        }}
+                        title={currentLang === 'en' ? 'Switch Language' : '切换语言'}
+                    >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                    </button>
+                    
+                    {langMenuOpen && (
+                        <div className="dropdown-menu">
+                            <div className={`dropdown-item ${currentLang === 'en' ? 'active' : ''}`} onClick={() => handleLangSelect('en')}>
+                                English
+                            </div>
+                             <div className={`dropdown-item ${currentLang === 'zh' ? 'active' : ''}`} onClick={() => handleLangSelect('zh')}>
+                                中文
+                            </div>
                         </div>
                     )}
-
-                    <div className="section-title">
-                        {searchQuery ? "Search Results" : (breadcrumbs.length > 0 ? breadcrumbs[breadcrumbs.length-1].title : "Root")}
-                    </div>
-
-                    <DndContext 
-                        sensors={sensors}
-                        collisionDetection={closestCenter}
-                        onDragEnd={handleDragEnd}
-                    >
-                        <SortableContext 
-                            items={nodes}
-                            strategy={rectSortingStrategy}
-                            disabled={!!searchQuery}
-                        >
-                            <div className="bookmarks-grid">
-                                {nodes.length === 0 && <p style={{color: 'var(--text-secondary)'}}>{t('emptyState')}</p>}
-                                {nodes.map(node => {
-                                    const isFolder = !node.url;
-                                    return (
-                                        <SortableItem 
-                                            key={node.id} 
-                                            id={node.id}
-                                            className="grid-item"
-                                            onDoubleClick={() => isFolder ? setCurrentFolderId(node.id) : chrome.tabs.create({url: node.url})}
-                                         >
-                                    <div className="preview-area">
-                                        {isFolder ? (
-                                            <svg className="folder-icon" width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
-                                        ) : (
-                                            <img className="favicon" src={getFavicon(node.url!)} onError={(e) => (e.currentTarget.src = 'icons/icon48.png')} />
-                                        )}
-                                    </div>
-                                    <div className="info-area">
-                                        <div className="title" title={node.title}>{node.title || t('untitled')}</div>
-                                        <div className="subtitle">{isFolder ? t('folder') : new URL(node.url!).hostname}</div>
-                                    </div>
-                                    <div className="actions">
-                                        <button className="action-btn" onClick={(e) => handleEdit(e, node)}>
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                                        </button>
-                                        <button className="action-btn delete-btn" onClick={(e) => handleDelete(e, node)}>
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                                        </button>
-                                    </div>
-                                        </SortableItem> 
-                                    )
-                                })}
-                            </div>
-                        </SortableContext>
-                    </DndContext>
                 </div>
+            </div>
 
-                {/* Right: Quick Search Tools */}
-                <div className="search-tools-section">
-                    <div className="search-tools-header">
-                        <h2 className="tools-title">{t('searchTools')}</h2>
-                        <button 
-                            className="icon-btn" 
-                            onClick={handleAddSearchEngine}
-                            title={t('addSearchEngine')}
-                        >
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M12 5v14M5 12h14"/>
-                            </svg>
-                        </button>
-                    </div>
+            <div className="main-layout">
+                 {/* Left: Bookmarks */}
+                 <div className="bookmarks-section" onContextMenu={handleContextMenu} style={{flex: 1}}>
+                     {!searchQuery && (
+                         <div className="breadcrumbs">
+                             {breadcrumbs.map((crumb, idx) => (
+                                 <div 
+                                      key={crumb.id} 
+                                      className={`breadcrumb-item ${idx===breadcrumbs.length-1?'active':''}`}
+                                      onClick={() => setCurrentFolderId(crumb.id)}
+                                  >
+                                     {crumb.title} {idx < breadcrumbs.length-1 && '/'}
+                                 </div>
+                             ))}
+                         </div>
+                     )}
 
-                    <div className="search-engines-list">
-                        {searchEngines.length === 0 ? (
-                            <div className="empty-engines">
-                                <p>{t('emptySearchEngines')}</p>
-                            </div>
-                        ) : (
-                            searchEngines.map(engine => (
-                                <div key={engine.id} className="search-engine-item">
-                                    <div className="engine-header">
-                                        <span className="engine-name">{engine.name}</span>
-                                        <div className="engine-actions">
-                                            <button 
-                                                className="icon-btn-small" 
-                                                onClick={() => handleEditSearchEngine(engine)}
-                                                title={t('editSearchEngine')}
-                                            >
-                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                </svg>
-                                            </button>
-                                            <button 
-                                                className="icon-btn-small delete-btn" 
-                                                onClick={() => handleDeleteSearchEngine(engine)}
-                                                title={t('deleteSearchEngine')}
-                                            >
-                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                    <polyline points="3 6 5 6 21 6"></polyline>
-                                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                                                </svg>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div className="search-input-wrapper">
-                                        <input 
-                                            type="text"
-                                            className="search-engine-input"
-                                            placeholder={`${t('searchEngine')}...`}
-                                            value={searchQueries[engine.id] || ''}
-                                            onChange={(e) => handleSearchQueryChange(engine.id, e.target.value)}
-                                            onKeyPress={(e) => handleSearchKeyPress(e, engine)}
-                                        />
-                                        <button 
-                                            className="search-btn"
-                                            onClick={() => handleSearch(engine)}
-                                            disabled={!searchQueries[engine.id]}
-                                        >
-                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                <circle cx="11" cy="11" r="8"/>
-                                                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                                            </svg>
-                                        </button>
-                                    </div>
-                                </div>
-                            ))
-                        )}
-                    </div>
-                </div>
+                     <div className="section-title">
+                         {searchQuery ? "Search Results" : (breadcrumbs.length > 0 ? breadcrumbs[breadcrumbs.length-1].title : "Root")}
+                     </div>
+
+                     <DndContext 
+                         sensors={sensors}
+                         collisionDetection={closestCenter}
+                         onDragStart={handleDragStart}
+                         onDragEnd={handleDragEnd}
+                         onDragCancel={handleDragCancel}
+                     >
+                         <SortableContext 
+                             items={nodes}
+                             strategy={rectSortingStrategy}
+                             disabled={!!searchQuery}
+                         >
+                             <div className="bookmarks-grid">
+                                 {nodes.length === 0 && <p style={{color: 'var(--text-secondary)'}}>{t('emptyState')}</p>}
+                                 {nodes.map(node => {
+                                     const isFolder = !node.url;
+                                     return (
+                                         <SortableItem 
+                                             key={node.id} 
+                                             id={node.id}
+                                             className="grid-item"
+                                             onDoubleClick={() => isFolder ? setCurrentFolderId(node.id) : chrome.tabs.create({url: node.url})}
+                                          >
+                                             <BookmarkContent 
+                                                  node={node}
+                                                  getFavicon={getFavicon}
+                                                  onEdit={handleEdit}
+                                                  onDelete={handleDelete}
+                                              />
+                                         </SortableItem>
+                                     )
+                                 })}
+                             </div>
+                         </SortableContext>
+                         <DragOverlay adjustScale={true}>
+                              {activeId ? (
+                                  <div className="grid-item dragging-overlay" style={{cursor:'grabbing'}}>
+                                      <BookmarkContent 
+                                          node={nodes.find(n => n.id === activeId)!}
+                                          getFavicon={getFavicon}
+                                          onEdit={() => {}} 
+                                          onDelete={() => {}}
+                                      />
+                                  </div>
+                              ) : null}
+                         </DragOverlay>
+                     </DndContext>
+                 </div>
             </div>
        </main>
        
+       <SearchPopup 
+         isOpen={searchPopupOpen}
+         onClose={() => setSearchPopupOpen(false)}
+         searchEngines={searchEngines}
+         searchQueries={searchQueries}
+         onQueryChange={handleSearchQueryChange}
+         onSearch={handleSearch}
+         onAddEngine={handleAddSearchEngine}
+         onEditEngine={handleEditSearchEngine}
+         onDeleteEngine={handleDeleteSearchEngine}
+       />
+
+       {/* Modal must be rendered AFTER SearchPopup if they share same context, 
+           but since we use CSS z-index, DOM order is less critical. 
+           However, keeping Modal last is safer for focus management if overlapping. 
+       */}
        <Modal 
          isOpen={modalOpen} 
          onCancel={() => setModalOpen(false)}

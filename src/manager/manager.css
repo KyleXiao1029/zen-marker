@@ -549,9 +549,8 @@ body {
 
 /* Two Column Layout */
 .main-layout {
-  display: grid;
-  grid-template-columns: 1fr 380px;
-  gap: 20px;
+  display: flex;
+  flex-direction: column;
   padding: 30px 40px;
   height: calc(100vh - var(--header-height));
   overflow: hidden;
@@ -839,3 +838,221 @@ body {
     font-weight: 600;
     background-color: var(--accent-light);
 }
+
+/* Search Popup (Apple Folder Style Animation) */
+.search-popup-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    /* Lower z-index than standard Modal (1000) so edit modals pop above it */
+    z-index: 900; 
+    background-color: rgba(255, 255, 255, 0.4); /* Slight dim, mostly blurred feeling */
+    backdrop-filter: blur(5px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeInOverlay 0.2s ease-out;
+}
+
+@media (prefers-color-scheme: dark) {
+    .search-popup-overlay {
+        background-color: rgba(0, 0, 0, 0.4);
+    }
+}
+
+.search-popup-content {
+    width: 96%;
+    max-width: 1600px;
+    height: 92vh;
+    max-height: 92vh;
+    background-color: var(--bg-secondary); /* Often slightly contrasted from main bg */
+    border-radius: 20px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    
+    /* Apple Folder Open Animation */
+    transform-origin: center;
+    animation: folderExpand 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); /* Custom spring-like bezier */
+}
+
+@keyframes folderExpand {
+    0% {
+        opacity: 0;
+        transform: scale(0.8);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes fadeInOverlay {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.search-popup-header {
+    padding: 20px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border-color);
+    background-color: var(--bg-color); /* Header slightly distinct */
+}
+
+.search-popup-title {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0;
+}
+
+.search-popup-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+}
+
+/* Search card layout */
+.search-engines-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: 20px;
+}
+
+.search-card {
+  display: flex;
+  align-items: center;
+  gap: 8px; /* Reduced gap */
+  background: var(--bg-color);
+  padding: 10px 12px; /* Reduced padding */
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  transition: all 0.2s;
+}
+
+.search-card:hover {
+  border-color: var(--accent-color);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  transform: translateY(-1px);
+}
+
+.search-card-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.engine-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
+.engine-name {
+  font-weight: 600;
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-card-input-wrapper {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0; /* Important for flex child to shrink */
+}
+
+.search-engine-input {
+  width: 100%;
+  padding: 8px 12px; /* Slightly reduced vertical padding */
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 14px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  outline: none;
+  transition: all 0.2s;
+}
+
+.search-engine-input:focus {
+  background: var(--bg-color);
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 2px var(--accent-light);
+}
+
+.search-go-btn {
+  width: 34px;
+  height: 34px;
+  background: var(--accent-color);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.search-go-btn:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: scale(1.05);
+}
+
+.search-go-btn:disabled {
+  background: var(--border-color);
+  cursor: not-allowed;
+}
+
+.search-card-actions {
+  display: flex; /* Always take formatting space */
+  gap: 4px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none; /* Prevent clicks when hidden */
+}
+
+.search-card:hover .search-card-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Optional: Make the name truncate if needed when actions appear */
+.search-card-left {
+  position: relative; /* For context */
+}
+
+.icon-btn-tiny {
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-btn-tiny:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.icon-btn-tiny.delete:hover {
+  background: #ffe5e5;
+  color: #ff3b30;
+}
+

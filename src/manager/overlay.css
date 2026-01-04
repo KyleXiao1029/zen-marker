@@ -1,0 +1,10 @@
+.grid-item.dragging-overlay {
+  box-shadow: 0 15px 30px rgba(0,0,0,0.3);
+  transform: scale(1.05);
+  border: 1px solid var(--accent-color);
+  cursor: grabbing;
+  z-index: 10000;
+  opacity: 1 !important;
+  background-color: var(--bg-color);
+  pointer-events: none;
+}
