@@ -91,6 +91,9 @@ const SearchCard = ({
                     value={searchQuery || ''}
                     onChange={(e) => onQueryChange && onQueryChange(engine.id, e.target.value)}
                     onKeyDown={(e) => {
+                        if (e.key === ' ' || e.key === 'Enter') {
+                            e.stopPropagation();
+                        }
                         if(e.key === 'Enter' && onSearch) onSearch(engine);
                     }}
                     onPointerDown={(e) => e.stopPropagation()}

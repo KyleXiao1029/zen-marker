@@ -88,7 +88,7 @@ const I18N = {
     deleteSearchEngine: '删除搜索引擎?',
     inputEngineName: '引擎名称（如 谷歌）',
     inputSearchUrl: '搜索地址（使用 {z} 代表搜索词）',
-    descDeleteEngine: (name: string) => `删除搜索引擎 "${name}"？`,
+    descDeleteEngine: (name: string) => `删除 "${name}"`,
     searchUrlExample: '例如：https://www.google.com/search?q={z}',
     emptySearchEngines: '未配置搜索引擎',
     sortByNameAsc: '按名称排序 (A-Z)',
