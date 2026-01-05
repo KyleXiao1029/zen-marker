@@ -1,12 +1,25 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { t } from '../utils/i18n';
 import './manager.css';
-
-interface SearchEngine {
-    id: string;
-    name: string;
-    url: string;
-}
+import { SearchEngine } from './types';
+import {
+  DndContext, 
+  closestCenter,
+  useSensor,
+  useSensors,
+  PointerSensor,
+  KeyboardSensor,
+  DragEndEvent,
+  DragStartEvent,
+  DragOverlay
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  rectSortingStrategy,
+  sortableKeyboardCoordinates
+} from '@dnd-kit/sortable';
+import { SortableItem } from './SortableItem';
 
 interface SearchPopupProps {
     isOpen: boolean;
@@ -18,7 +31,85 @@ interface SearchPopupProps {
     onAddEngine: () => void;
     onEditEngine: (engine: SearchEngine) => void;
     onDeleteEngine: (engine: SearchEngine) => void;
+    onSort: (order: 'asc' | 'desc' | 'length') => void;
+    onReorder: (newEngines: SearchEngine[]) => void;
 }
+
+const SearchCard = ({ 
+    engine, 
+    searchQuery, 
+    onQueryChange, 
+    onSearch, 
+    onContextMenu, 
+    inputRef,
+    isOverlay = false
+}: { 
+    engine: SearchEngine, 
+    searchQuery: string, 
+    onQueryChange?: (id: string, val: string) => void, 
+    onSearch?: (engine: SearchEngine) => void,
+    onContextMenu?: (e: React.MouseEvent) => void,
+    inputRef?: React.RefObject<HTMLInputElement>,
+    isOverlay?: boolean
+}) => {
+    const getFavicon = (urlStr: string) => {
+        try {
+            const url = new URL(urlStr.replace('{z}', ''));
+            return `https://www.google.com/s2/favicons?domain=${url.hostname}&sz=64`;
+        } catch (e) {
+            return 'icons/icon48.png';
+        }
+    };
+
+    return (
+        <div 
+            className={`search-card ${isOverlay ? 'drag-overlay-card' : ''}`}
+            style={isOverlay ? { 
+                cursor: 'grabbing', 
+                boxShadow: '0 8px 16px rgba(0,0,0,0.2)',
+                background: 'var(--bg-secondary)', // Ensure background is opaque
+                border: '1px solid var(--border-color)',
+                zIndex: 9999
+            } : undefined}
+            onContextMenu={onContextMenu}
+        >
+            <div className="search-card-left">
+                <img 
+                    className="engine-icon" 
+                    src={getFavicon(engine.url)} 
+                    alt={engine.name}
+                    onError={(e) => (e.currentTarget.style.display = 'none')} 
+                />
+            </div>
+            
+            <div className="search-card-input-wrapper">
+                <input 
+                    ref={inputRef}
+                    type="text"
+                    className="search-engine-input"
+                    placeholder={t('searchAction', engine.name)}
+                    value={searchQuery || ''}
+                    onChange={(e) => onQueryChange && onQueryChange(engine.id, e.target.value)}
+                    onKeyDown={(e) => {
+                        if(e.key === 'Enter' && onSearch) onSearch(engine);
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    readOnly={isOverlay}
+                />
+                <button 
+                    className="search-go-btn"
+                    onClick={() => onSearch && onSearch(engine)}
+                    disabled={!searchQuery}
+                >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <circle cx="11" cy="11" r="8"/>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    );
+};
 
 export const SearchPopup: React.FC<SearchPopupProps> = ({
     isOpen,
@@ -29,12 +120,27 @@ export const SearchPopup: React.FC<SearchPopupProps> = ({
     onSearch,
     onAddEngine,
     onEditEngine,
-    onDeleteEngine
+    onDeleteEngine,
+    onSort,
+    onReorder
 }) => {
-    const [gridColumns, setGridColumns] = React.useState(3);
-    const [columnMenuOpen, setColumnMenuOpen] = React.useState(false);
-    const [contextMenu, setContextMenu] = React.useState<{ x: number, y: number, engine: SearchEngine } | null>(null);
+    const [gridColumns, setGridColumns] = useState(3);
+    const [columnMenuOpen, setColumnMenuOpen] = useState(false);
+    const [sortMenuOpen, setSortMenuOpen] = useState(false);
+    const [contextMenu, setContextMenu] = useState<{ x: number, y: number, engine: SearchEngine } | null>(null);
+    const [activeId, setActiveId] = useState<string | null>(null);
     const firstInputRef = useRef<HTMLInputElement>(null);
+
+    const sensors = useSensors(
+        useSensor(PointerSensor, {
+            activationConstraint: {
+                distance: 8,
+            },
+        }),
+        useSensor(KeyboardSensor, {
+            coordinateGetter: sortableKeyboardCoordinates,
+        })
+    );
 
     useEffect(() => {
         if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
@@ -42,7 +148,6 @@ export const SearchPopup: React.FC<SearchPopupProps> = ({
                 if (result.gridColumns) {
                     setGridColumns(result.gridColumns);
                 } else {
-                    // Try local storage if not in sync storage (first migration)
                     const saved = localStorage.getItem('zen_marker_grid_columns');
                     if (saved) setGridColumns(parseInt(saved, 10));
                 }
@@ -63,19 +168,9 @@ export const SearchPopup: React.FC<SearchPopupProps> = ({
         localStorage.setItem('zen_marker_grid_columns', cols.toString());
     };
 
-    const getFavicon = (urlStr: string) => {
-        try {
-            const url = new URL(urlStr.replace('{z}', ''));
-            return `https://www.google.com/s2/favicons?domain=${url.hostname}&sz=64`;
-        } catch (e) {
-            return 'icons/icon48.png';
-        }
-    };
-
     // Auto-focus logic
     useEffect(() => {
         if (isOpen && firstInputRef.current) {
-            // Small delay to allow animation to start/settle slightly
             setTimeout(() => {
                 firstInputRef.current?.focus();
             }, 100);
@@ -91,11 +186,12 @@ export const SearchPopup: React.FC<SearchPopupProps> = ({
         };
         const handleGlobalClick = () => {
              setColumnMenuOpen(false);
+             setSortMenuOpen(false);
              setContextMenu(null);
         };
         
         window.addEventListener('keydown', handleKeyDown);
-        if (columnMenuOpen || contextMenu) {
+        if (columnMenuOpen || sortMenuOpen || contextMenu) {
             window.addEventListener('click', handleGlobalClick);
             window.addEventListener('contextmenu', handleGlobalClick);
         }
@@ -105,9 +201,27 @@ export const SearchPopup: React.FC<SearchPopupProps> = ({
             window.removeEventListener('click', handleGlobalClick);
             window.removeEventListener('contextmenu', handleGlobalClick);
         };
-    }, [isOpen, onClose, columnMenuOpen, contextMenu]);
+    }, [isOpen, onClose, columnMenuOpen, sortMenuOpen, contextMenu]);
+
+    const handleDragStart = (event: DragStartEvent) => {
+        setActiveId(event.active.id as string);
+    };
+
+    const handleDragEnd = (event: DragEndEvent) => {
+        const { active, over } = event;
+        setActiveId(null);
+
+        if (active.id !== over?.id) {
+            const oldIndex = searchEngines.findIndex((item) => item.id === active.id);
+            const newIndex = searchEngines.findIndex((item) => item.id === over?.id);
+            const newOrder = arrayMove(searchEngines, oldIndex, newIndex);
+            onReorder(newOrder);
+        }
+    };
 
     if (!isOpen) return null;
+
+    const activeEngine = activeId ? searchEngines.find(e => e.id === activeId) : null;
 
     return (
         <div className="search-popup-overlay" onMouseDown={onClose}>
@@ -118,12 +232,53 @@ export const SearchPopup: React.FC<SearchPopupProps> = ({
                 <div className="search-popup-header">
                     <h2 className="search-popup-title">{t('searchTools')}</h2>
                     <div style={{display: 'flex', gap: '16px', alignItems: 'center'}}>
+                        
+                         {/* Sort Button - Similar to Manager */}
+                         <div className="column-selector" style={{position: 'relative'}}>
+                             <button 
+                                 className="icon-btn-tiny"
+                                 onClick={(e) => {
+                                     e.stopPropagation();
+                                     setSortMenuOpen(!sortMenuOpen);
+                                     setColumnMenuOpen(false);
+                                 }}
+                                 title={t('sort')}
+                                 style={{
+                                     width: '32px', 
+                                     height: '32px', 
+                                     border: '1px solid var(--border-color)',
+                                     borderRadius: '6px',
+                                     background: sortMenuOpen ? 'var(--bg-secondary)' : 'transparent'
+                                 }}
+                             >
+                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M6 12h12M9 18h6"/></svg>
+                             </button>
+
+                             {sortMenuOpen && (
+                                 <div className="dropdown-menu" style={{right: 'auto', left: 0, minWidth: '180px'}}>
+                                     <div className="dropdown-item" onClick={() => { onSort('asc'); setSortMenuOpen(false); }}>
+                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{marginRight: 8}}><path d="M15 11l-3 3-3-3m0-6h12M9 17h12"></path></svg>
+                                         {t('sortByNameAsc')}
+                                     </div>
+                                     <div className="dropdown-item" onClick={() => { onSort('desc'); setSortMenuOpen(false); }}>
+                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{marginRight: 8}}><path d="M15 13l-3-3-3 3m0 6h12M9 5h12"></path></svg>
+                                         {t('sortByNameDesc')}
+                                     </div>
+                                     <div className="dropdown-item" onClick={() => { onSort('length'); setSortMenuOpen(false); }}>
+                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{marginRight: 8}}><path d="M21 6H3M17 12H7M13 18H11"></path></svg>
+                                         {t('sortByNameLength')}
+                                     </div>
+                                 </div>
+                             )}
+                         </div>
+
                         <div className="column-selector" style={{position: 'relative'}}>
                             <button
                                 className="icon-btn-tiny"
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     setColumnMenuOpen(!columnMenuOpen);
+                                    setSortMenuOpen(false);
                                 }}
                                 title={t('columns', gridColumns)}
                                 style={{
@@ -186,67 +341,62 @@ export const SearchPopup: React.FC<SearchPopupProps> = ({
                 </div>
 
                 <div className="search-popup-body">
-                    <div 
-                        className="search-engines-list" 
-                        style={{ 
-                            gridTemplateColumns: `repeat(${gridColumns}, 1fr)` 
-                        }}
+                    <DndContext
+                        sensors={sensors}
+                        collisionDetection={closestCenter}
+                        onDragStart={handleDragStart}
+                        onDragEnd={handleDragEnd}
                     >
-                    {searchEngines.length === 0 ? (
-                        <div className="empty-engines">
-                            <p>{t('emptySearchEngines')}</p>
-                        </div>
-                    ) : (
-                        searchEngines.map((engine, index) => (
+                        <SortableContext
+                            items={searchEngines}
+                            strategy={rectSortingStrategy}
+                        >
                             <div 
-                                key={engine.id} 
-                                className="search-card"
-                                onContextMenu={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    setContextMenu({
-                                        x: e.clientX,
-                                        y: e.clientY,
-                                        engine
-                                    });
+                                className="search-engines-list" 
+                                style={{ 
+                                    gridTemplateColumns: `repeat(${gridColumns}, 1fr)` 
                                 }}
                             >
-                                <div className="search-card-left">
-                                    <img 
-                                        className="engine-icon" 
-                                        src={getFavicon(engine.url)} 
-                                        alt={engine.name}
-                                        onError={(e) => (e.currentTarget.style.display = 'none')} 
-                                    />
+                            {searchEngines.length === 0 ? (
+                                <div className="empty-engines">
+                                    <p>{t('emptySearchEngines')}</p>
                                 </div>
-                                
-                                <div className="search-card-input-wrapper">
-                                    <input 
-                                        ref={index === 0 ? firstInputRef : null}
-                                        type="text"
-                                        className="search-engine-input"
-                                        placeholder={t('searchAction', engine.name)}
-                                        value={searchQueries[engine.id] || ''}
-                                        onChange={(e) => onQueryChange(engine.id, e.target.value)}
-                                        onKeyPress={(e) => {
-                                            if(e.key === 'Enter') onSearch(engine);
-                                        }}
-                                    />
-                                    <button 
-                                        className="search-go-btn"
-                                        onClick={() => onSearch(engine)}
-                                        disabled={!searchQueries[engine.id]}
+                            ) : (
+                                searchEngines.map((engine, index) => (
+                                    <SortableItem 
+                                        key={engine.id} 
+                                        id={engine.id}
+                                        className="search-card-wrapper"
                                     >
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                            <circle cx="11" cy="11" r="8"/>
-                                            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                                        </svg>
-                                    </button>
-                                </div>
+                                        <SearchCard 
+                                            engine={engine}
+                                            searchQuery={searchQueries[engine.id]}
+                                            onQueryChange={onQueryChange}
+                                            onSearch={onSearch}
+                                            inputRef={index === 0 ? firstInputRef : undefined}
+                                            onContextMenu={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                setContextMenu({ x: e.clientX, y: e.clientY, engine });
+                                            }}
+                                        />
+                                    </SortableItem>
+                                ))
+                            )}
                             </div>
-                        ))
-                    )}
-                    </div>
+                        </SortableContext>
+                        <DragOverlay adjustScale={true}>
+                            {activeEngine ? (
+                                <div style={{width: '250px'}}> 
+                                    <SearchCard 
+                                        engine={activeEngine}
+                                        searchQuery={searchQueries[activeEngine.id]}
+                                        isOverlay={true}
+                                    />
+                                </div>
+                            ) : null}
+                        </DragOverlay>
+                    </DndContext>
                 </div>
             </div>
 
@@ -282,7 +432,7 @@ export const SearchPopup: React.FC<SearchPopupProps> = ({
                     >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <polyline points="3 6 5 6 21 6"></polyline>
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2v2"></path>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2v2"></path>
                         </svg>
                         <span>{t('deleteSearchEngine')}</span>
                     </div>

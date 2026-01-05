@@ -27,7 +27,13 @@ import './overlay.css';
 
 
 export default function Manager() {
-  const [currentFolderId, setCurrentFolderId] = useState("1"); // Bookmarks Bar
+  const [currentFolderId, setCurrentFolderId] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('folder') || "1";
+    }
+    return "1";
+  }); // Bookmarks Bar
   const [tree, setTree] = useState<BookmarkNode[]>([]);
   const [nodes, setNodes] = useState<BookmarkNode[]>([]);
   const [breadcrumbs, setBreadcrumbs] = useState<{id: string, title: string}[]>([]);
@@ -46,7 +52,16 @@ export default function Manager() {
 
   // Menus
   const [langMenuOpen, setLangMenuOpen] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ visible: boolean; x: number; y: number } | null>(null);
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const [isRenamingTitle, setIsRenamingTitle] = useState(false);
+  const [renameTitleValue, setRenameTitleValue] = useState("");
+  const [contextMenu, setContextMenu] = useState<{x: number, y: number, node: BookmarkNode} | null>(null);
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
+
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [gridSize, setGridSize] = useState(160);
 
   // DnD Sensors
   const sensors = useSensors(
@@ -57,8 +72,50 @@ export default function Manager() {
     }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
+      keyboardCodes: {
+        start: ['Space'],
+        cancel: ['Escape'],
+        end: ['Space', 'Enter'],
+      }
     })
   );
+
+  useEffect(() => {
+    document.documentElement.style.setProperty('--grid-item-size', `${gridSize}px`);
+  }, [gridSize]);
+
+  const isFirstRender = React.useRef(true);
+
+  // Sync URL with current folder
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+        const url = new URL(window.location.href);
+        const currentUrlFolder = url.searchParams.get('folder');
+        
+        if (currentUrlFolder !== currentFolderId) {
+            url.searchParams.set('folder', currentFolderId);
+            if (isFirstRender.current && !currentUrlFolder) {
+                 window.history.replaceState({}, '', url.toString());
+            } else {
+                 window.history.pushState({}, '', url.toString());
+            }
+        }
+    }
+    isFirstRender.current = false;
+  }, [currentFolderId]);
+
+  // Handle back/forward navigation
+  useEffect(() => {
+    const handlePopState = () => {
+        const params = new URLSearchParams(window.location.search);
+        const folder = params.get('folder');
+        if (folder) {
+            setCurrentFolderId(folder);
+        }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(event.active.id as string);
@@ -73,7 +130,11 @@ export default function Manager() {
     
     setActiveId(null);
 
-    if (over && active.id !== over.id) {
+    if (!over) return;
+
+
+
+    if (active.id !== over.id) {
         const oldIndex = nodes.findIndex((item) => item.id === active.id);
         const newIndex = nodes.findIndex((item) => item.id === over.id);
 
@@ -104,9 +165,17 @@ export default function Manager() {
 
   // Close menus on global click
   useEffect(() => {
-    const handleClick = () => {
-        setContextMenu(null);
+    const handleClick = (e: any) => {
+        setSortMenuOpen(false);
         setLangMenuOpen(false);
+        setContextMenu(null);
+        
+        // Clear selection if clicking on empty background (not on a grid item)
+        // This is a naive check; ideally check if target is inside .bookmarks-grid but not .grid-item
+        if (e.target.closest('.app-container') && !e.target.closest('.grid-item') && !e.target.closest('.action-btn')) {
+            setSelectedIds(new Set());
+            setLastSelectedId(null);
+        }
     };
     window.addEventListener('click', handleClick);
     return () => window.removeEventListener('click', handleClick);
@@ -118,6 +187,11 @@ export default function Manager() {
       loadContent(currentFolderId);
       loadSearchEngines();
       loadSettings();
+
+      return () => {
+          // Cleanup if needed
+      }
+
   }, []);
 
   useEffect(() => {
@@ -223,10 +297,16 @@ export default function Manager() {
 
   const loadSettings = () => {
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
-        chrome.storage.sync.get(['lang'], (result) => {
+        chrome.storage.sync.get(['lang', 'viewMode', 'gridSize'], (result) => {
             if (result.lang) {
                 setLang(result.lang);
                 setCurrentLang(result.lang); 
+            }
+            if (result.viewMode) {
+                setViewMode(result.viewMode);
+            }
+            if (result.gridSize) {
+                setGridSize(result.gridSize);
             }
         });
     }
@@ -241,6 +321,19 @@ export default function Manager() {
           chrome.storage.sync.set({ lang });
       }
   };
+
+  // Persist View Settings
+  useEffect(() => {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
+        chrome.storage.sync.set({ viewMode });
+    }
+  }, [viewMode]);
+
+  useEffect(() => {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
+        chrome.storage.sync.set({ gridSize });
+    }
+  }, [gridSize]);
 
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
 
@@ -282,19 +375,24 @@ export default function Manager() {
                   className={`nav-item ${isSelected ? 'active' : ''}`}
                   style={{ paddingLeft: `${12 + level * 16}px` }}
                   onClick={() => { setCurrentFolderId(node.id); setSearchQuery(""); }}
+                  onDoubleClick={(e) => hasChildren && toggleFolder(e, node.id)}
               >
                   {hasChildren && (
                     <span 
                       className={`nav-arrow ${isExpanded ? 'active' : ''}`}
                       onClick={(e) => toggleFolder(e, node.id)}
                     >
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
                     </span>
                   )}
-                  {!hasChildren && <span style={{width: '16px', marginRight: '2px'}}></span>}
+                  {!hasChildren && <span style={{width: '20px', marginRight: '-2px'}}></span>}
 
                   <span className="nav-icon">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+                    {isExpanded ? (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/></svg>
+                    ) : (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+                    )}
                   </span>
                   <span className="nav-title">{node.title}</span>
               </div>
@@ -336,8 +434,42 @@ export default function Manager() {
       setModalOpen(true);
   };
 
+  const handleDeleteMultiple = () => {
+      const ids = Array.from(selectedIds);
+      if (ids.length === 0) return;
+      
+      setModalConfig({
+          title: t('delete'),
+          desc: `Delete ${ids.length} items?`,
+          confirmText: t('delete'),
+          isDanger: true,
+          onConfirm: () => {
+              // Recursive or Batch delete
+              ids.forEach(id => {
+                 const node = nodes.find(n => n.id === id);
+                 if (node) {
+                     const action = !node.url ? chrome.bookmarks.removeTree : chrome.bookmarks.remove;
+                     action(id, () => {});
+                 }
+              });
+              // Wait a bit or use callback properly (simplified here)
+              setTimeout(() => {
+                  loadContent(currentFolderId);
+                  loadTree();
+                  setSelectedIds(new Set());
+              }, 200);
+              setModalOpen(false);
+          }
+      });
+      setModalOpen(true);
+  };
+
   const handleDelete = (e: React.MouseEvent, node: BookmarkNode) => {
       e.stopPropagation();
+      // If deleting a single item that is not in selection, select only it
+      // If deleting an item IN selection, delete all selected? Windows deletes all selected usually.
+      // For simplicity, if button clicked, just delete that one.
+      
       const isFolder = !node.url;
       setModalConfig({
           title: isFolder ? t('titleDeleteFolder') : t('titleDeleteBookmark'),
@@ -350,6 +482,11 @@ export default function Manager() {
                   loadContent(currentFolderId);
                   if(isFolder) loadTree();
                   setModalOpen(false);
+                  setSelectedIds(prev => {
+                      const next = new Set(prev);
+                      next.delete(node.id);
+                      return next;
+                  });
               });
           }
       });
@@ -460,16 +597,7 @@ export default function Manager() {
 
 
 
-  const handleContextMenu = (e: React.MouseEvent) => {
-    e.preventDefault();
-    if ((e.target as HTMLElement).closest('.grid-item')) return;
 
-    setContextMenu({
-        visible: true,
-        x: e.pageX,
-        y: e.pageY
-    });
-  };
 
   const handleSort = async (order: 'asc' | 'desc' | 'length') => {
       const sorted = [...nodes].sort((a, b) => {
@@ -501,7 +629,8 @@ export default function Manager() {
       });
       
       setNodes(sorted);
-      setContextMenu(null);
+      setNodes(sorted);
+      setSortMenuOpen(false);
 
       // Persist to Chrome Storage
       if (typeof chrome !== 'undefined' && chrome.bookmarks) {
@@ -521,6 +650,141 @@ export default function Manager() {
           loadTree();
       }
   };
+
+  const handleRenameTitle = () => {
+    if (!renameTitleValue.trim() || !currentFolderId || currentFolderId === '0') {
+      setIsRenamingTitle(false);
+      return;
+    }
+
+    chrome.bookmarks.update(currentFolderId, { title: renameTitleValue }, () => {
+       // Refresh breadcrumbs/tree
+       loadContent(currentFolderId);
+       loadTree();
+       setIsRenamingTitle(false);
+    });
+  };
+
+  const startRenaming = () => {
+      // Don't rename Root or Search results
+      if (searchQuery || ['0', '1', '2'].includes(currentFolderId)) return;
+      
+      const currentTitle = breadcrumbs.length > 0 ? breadcrumbs[breadcrumbs.length-1].title : "";
+      setRenameTitleValue(currentTitle);
+      setIsRenamingTitle(true);
+  };
+
+  const handleSearchEngineSort = (order: 'asc' | 'desc' | 'length') => {
+      const sorted = [...searchEngines].sort((a, b) => {
+          const aName = a.name.trim();
+          const bName = b.name.trim();
+
+          if (order === 'length') {
+              const getVisualLength = (str: string) => {
+                  let len = 0;
+                  for (let i = 0; i < str.length; i++) {
+                      len += str.charCodeAt(i) > 255 ? 2 : 1;
+                  }
+                  return len;
+              };
+              return getVisualLength(aName) - getVisualLength(bName) || aName.localeCompare(bName);
+          }
+
+          return order === 'asc' 
+            ? aName.localeCompare(bName, currentLang === 'zh' ? 'zh-CN' : 'en')
+            : bName.localeCompare(aName, currentLang === 'zh' ? 'zh-CN' : 'en');
+      });
+      
+      setSearchEngines(sorted);
+      saveSearchEngines(sorted);
+  };
+
+  const handleSearchEngineReorder = (newEngines: SearchEngine[]) => {
+      setSearchEngines(newEngines);
+      saveSearchEngines(newEngines);
+  };
+
+  const handleSelection = (e: React.MouseEvent, id: string) => {
+      // Don't trigger if clicking actions
+      // if ((e.target as HTMLElement).closest('button')) return; 
+      
+      if (e.ctrlKey || e.metaKey) {
+          setSelectedIds(prev => {
+              const next = new Set(prev);
+              if (next.has(id)) next.delete(id);
+              else next.add(id);
+              return next;
+          });
+          setLastSelectedId(id);
+      } else if (e.shiftKey && lastSelectedId) {
+          const currentIndex = nodes.findIndex(n => n.id === id);
+          const lastIndex = nodes.findIndex(n => n.id === lastSelectedId);
+          if (currentIndex !== -1 && lastIndex !== -1) {
+              const start = Math.min(currentIndex, lastIndex);
+              const end = Math.max(currentIndex, lastIndex);
+              const range = nodes.slice(start, end + 1).map(n => n.id);
+              setSelectedIds(new Set(range));
+          }
+      } else {
+          // Single select
+          // Only if not dragging... but here we are in onClick which fires after drag?
+          setSelectedIds(new Set([id]));
+          setLastSelectedId(id);
+      }
+  };
+
+  const handleContextMenu = (e: React.MouseEvent, node: BookmarkNode) => {
+      e.preventDefault();
+      // Prevent context menu on drag
+      if (activeId) return;
+
+      // If right clicking an item that is NOT selected, select it exclusively
+      if (!selectedIds.has(node.id)) {
+          setSelectedIds(new Set([node.id]));
+          setLastSelectedId(node.id);
+      }
+
+      setContextMenu({ x: e.clientX, y: e.clientY, node });
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+        // Ignore if input is active (e.g. renaming or search)
+        if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
+            return;
+        }
+
+        if (e.key === 'Delete') {
+            if (selectedIds.size > 0) {
+                handleDeleteMultiple();
+            }
+        }
+        
+        if (e.key === 'Enter') {
+            // Prevent default behavior (like form submission if any)
+            e.preventDefault();
+            
+            if (selectedIds.size === 1) {
+                const id = Array.from(selectedIds)[0];
+                const node = nodes.find(n => n.id === id);
+                if (node) {
+                    if (!node.url) {
+                        // Open Folder
+                        setCurrentFolderId(node.id);
+                        setSearchQuery("");
+                    } else {
+                        // Open URL
+                        chrome.tabs.create({url: node.url});
+                    }
+                }
+            }
+        }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedIds, nodes, currentFolderId, handleDeleteMultiple]);
+
 
 
 
@@ -582,13 +846,15 @@ export default function Manager() {
                         </svg>
                     </button>
 
+
+
                     <button 
                         className="action-btn" 
                         style={{width: '32px', height: '32px', border: 'none', background: 'transparent'}}
                         onClick={(e) => {
                             e.stopPropagation();
                             setLangMenuOpen(!langMenuOpen);
-                            setContextMenu(null);
+                            setSortMenuOpen(false);
                         }}
                         title={currentLang === 'en' ? 'Switch Language' : '切换语言'}
                     >
@@ -610,7 +876,7 @@ export default function Manager() {
 
             <div className="main-layout">
                  {/* Left: Bookmarks */}
-                 <div className="bookmarks-section" onContextMenu={handleContextMenu} style={{flex: 1}}>
+                 <div className="bookmarks-section" style={{flex: 1}}>
                      {!searchQuery && (
                          <div className="breadcrumbs">
                              {breadcrumbs.map((crumb, idx) => (
@@ -625,8 +891,112 @@ export default function Manager() {
                          </div>
                      )}
 
-                     <div className="section-title">
-                         {searchQuery ? "Search Results" : (breadcrumbs.length > 0 ? breadcrumbs[breadcrumbs.length-1].title : "Root")}
+                     <div className="section-header">
+                         <div className="title-area">
+                             {isRenamingTitle ? (
+                                 <input 
+                                     className="section-title-input"
+                                     value={renameTitleValue}
+                                     onChange={(e) => setRenameTitleValue(e.target.value)}
+                                     onBlur={handleRenameTitle}
+                                     onKeyDown={(e) => {
+                                         if(e.key === 'Enter') handleRenameTitle();
+                                         if(e.key === 'Escape') setIsRenamingTitle(false);
+                                     }}
+                                     autoFocus
+                                 />
+                             ) : (
+                                 <>
+                                     <h2 className="section-title">
+                                         {searchQuery ? "Search Results" : (breadcrumbs.length > 0 ? breadcrumbs[breadcrumbs.length-1].title : "Root")}
+                                     </h2>
+                                     {!searchQuery && !['0', '1', '2'].includes(currentFolderId) && (
+                                         <button className="edit-title-btn" onClick={startRenaming} title={t('renameFolder') || "Rename"}>
+                                             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                                         </button>
+                                     )}
+                                 </>
+                             )}
+                         </div>
+
+                         <div className="view-controls" style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
+                            {viewMode === 'grid' && (
+                                <div className="segmented-control" style={{display: 'flex', background: 'var(--bg-secondary)', padding: '2px', borderRadius: '8px'}}>
+                                    {[120, 160, 200].map(size => (
+                                        <button
+                                            key={size}
+                                            className={`action-btn ${gridSize === size ? 'active' : ''}`}
+                                            style={{
+                                                width: 'auto', 
+                                                padding: '0 8px',
+                                                height: '28px', 
+                                                border: 'none', 
+                                                background: gridSize === size ? 'var(--bg-color)' : 'transparent', 
+                                                boxShadow: gridSize === size ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                                                fontSize: '12px',
+                                                fontWeight: 500
+                                            }}
+                                            onClick={() => setGridSize(size)}
+                                        >
+                                            {size === 120 ? 'S' : size === 160 ? 'M' : 'L'}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
+                            <div className="view-toggles" style={{display: 'flex', background: 'var(--bg-secondary)', padding: '2px', borderRadius: '8px'}}>
+                                <button 
+                                    className={`action-btn ${viewMode === 'grid' ? 'active' : ''}`}
+                                    style={{width: '28px', height: '28px', border: 'none', background: viewMode === 'grid' ? 'var(--bg-color)' : 'transparent', boxShadow: viewMode === 'grid' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'}}
+                                    onClick={() => setViewMode('grid')}
+                                    title={t('gridView') || "Grid View"}
+                                >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                                </button>
+                                <button 
+                                    className={`action-btn ${viewMode === 'list' ? 'active' : ''}`}
+                                    style={{width: '28px', height: '28px', border: 'none', background: viewMode === 'list' ? 'var(--bg-color)' : 'transparent', boxShadow: viewMode === 'list' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'}}
+                                    onClick={() => setViewMode('list')}
+                                    title={t('listView') || "List View"}
+                                >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                                </button>
+                            </div>
+
+                            <div className="sort-toggle" style={{display: 'flex', background: 'var(--bg-secondary)', padding: '2px', borderRadius: '8px', position: 'relative'}}>
+                                <button 
+                                    className={`action-btn ${sortMenuOpen ? 'active' : ''}`}
+                                    style={{width: '28px', height: '28px', border: 'none', background: sortMenuOpen ? 'var(--bg-color)' : 'transparent', boxShadow: sortMenuOpen ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'}}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSortMenuOpen(!sortMenuOpen);
+                                        setLangMenuOpen(false);
+                                    }}
+                                    title={t('sort') || "Sort"}
+                                >
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M6 12h12M9 18h6"/></svg>
+                                </button>
+                                
+                                {sortMenuOpen && (
+                                     <div className="sort-menu" style={{top: 'calc(100% + 4px)', right: 0}}>
+                                         <div className="sort-item" onClick={() => handleSort('asc')}>
+                                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 11l-3 3-3-3m0-6h12M9 17h12"></path></svg>
+                                             {t('sortByNameAsc')}
+                                         </div>
+                                         <div className="sort-item" onClick={() => handleSort('desc')}>
+                                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 13l-3-3-3 3m0 6h12M9 5h12"></path></svg>
+                                             {t('sortByNameDesc')}
+                                         </div>
+                                         <div className="sort-item" onClick={() => handleSort('length')}>
+                                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 6H3M17 12H7M13 18H11"></path></svg>
+                                              {t('sortByNameLength')}
+                                         </div>
+                                     </div>
+                                )}
+                            </div>
+                         </div>
+
+
                      </div>
 
                      <DndContext 
@@ -641,37 +1011,46 @@ export default function Manager() {
                              strategy={rectSortingStrategy}
                              disabled={!!searchQuery}
                          >
-                             <div className="bookmarks-grid">
+                             <div className={`bookmarks-grid ${viewMode === "list" ? "list-view" : ""}`}>
                                  {nodes.length === 0 && <p style={{color: 'var(--text-secondary)'}}>{t('emptyState')}</p>}
                                  {nodes.map(node => {
                                      const isFolder = !node.url;
                                      return (
-                                         <SortableItem 
-                                             key={node.id} 
-                                             id={node.id}
-                                             className="grid-item"
-                                             onDoubleClick={() => isFolder ? setCurrentFolderId(node.id) : chrome.tabs.create({url: node.url})}
-                                          >
-                                             <BookmarkContent 
-                                                  node={node}
-                                                  getFavicon={getFavicon}
-                                                  onEdit={handleEdit}
-                                                  onDelete={handleDelete}
-                                              />
-                                         </SortableItem>
-                                     )
-                                 })}
+                                        <SortableItem 
+                                            key={node.id} 
+                                            id={node.id}
+                                            className={`grid-item ${selectedIds.has(node.id) ? 'selected' : ''}`}
+                                            onClick={(e) => handleSelection(e, node.id)}
+                                            onDoubleClick={() => {
+                                                if (isFolder) setCurrentFolderId(node.id); 
+                                                else chrome.tabs.create({url: node.url});
+                                            }}
+                                            onContextMenu={(e) => handleContextMenu(e, node)}
+                                         >
+                                            <BookmarkContent 
+                                                 node={node}
+                                                 viewMode={viewMode}
+                                                 getFavicon={getFavicon}
+                                                 onEdit={handleEdit}
+                                                 onDelete={handleDelete}
+                                             />
+                                        </SortableItem>
+                                    )
+                                })}
                              </div>
                          </SortableContext>
                          <DragOverlay adjustScale={true}>
                               {activeId ? (
-                                  <div className="grid-item dragging-overlay" style={{cursor:'grabbing'}}>
-                                      <BookmarkContent 
-                                          node={nodes.find(n => n.id === activeId)!}
-                                          getFavicon={getFavicon}
-                                          onEdit={() => {}} 
-                                          onDelete={() => {}}
-                                      />
+                                  <div className={viewMode === 'list' ? 'list-view' : undefined} style={{width: '100%'}}>
+                                      <div className="grid-item dragging-overlay" style={{cursor:'grabbing'}}>
+                                          <BookmarkContent 
+                                              node={nodes.find(n => n.id === activeId)!}
+                                              viewMode={viewMode}
+                                              getFavicon={getFavicon}
+                                              onEdit={() => {}} 
+                                              onDelete={() => {}}
+                                          />
+                                      </div>
                                   </div>
                               ) : null}
                          </DragOverlay>
@@ -690,6 +1069,8 @@ export default function Manager() {
          onAddEngine={handleAddSearchEngine}
          onEditEngine={handleEditSearchEngine}
          onDeleteEngine={handleDeleteSearchEngine}
+         onSort={handleSearchEngineSort}
+         onReorder={handleSearchEngineReorder}
        />
 
        {/* Modal must be rendered AFTER SearchPopup if they share same context, 
@@ -702,26 +1083,34 @@ export default function Manager() {
          {...modalConfig}
        />
 
-       {contextMenu && contextMenu.visible && (
+       {contextMenu && (
            <div 
-               className="context-menu"
+               className="context-menu" 
                style={{ top: contextMenu.y, left: contextMenu.x }}
-               onClick={(e) => e.stopPropagation()}
+               onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside
            >
-               <div className="context-menu-item" onClick={() => handleSort('asc')}>
-                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 11l-3 3-3-3m0-6h12M9 17h12"></path></svg>
-                   {t('sortByNameAsc')}
+               <div className="context-menu-item" onClick={(e) => {
+                   setContextMenu(null);
+                   handleEdit(e, contextMenu.node);
+               }}>
+                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                   {t('edit') || "Edit"}
                </div>
-               <div className="context-menu-item" onClick={() => handleSort('desc')}>
-                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 13l-3-3-3 3m0 6h12M9 5h12"></path></svg>
-                   {t('sortByNameDesc')}
-               </div>
-               <div className="context-menu-item" onClick={() => handleSort('length')}>
-                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 6H3M17 12H7M13 18H11"></path></svg>
-                   {t('sortByNameLength')}
+               <div className="context-menu-item danger" onClick={(e) => {
+                   setContextMenu(null);
+                   if (selectedIds.size > 1) {
+                       handleDeleteMultiple();
+                   } else {
+                       handleDelete(e, contextMenu.node);
+                   }
+               }}>
+                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                   {selectedIds.size > 1 ? `${t('delete')} (${selectedIds.size})` : (t('delete') || "Delete")}
                </div>
            </div>
        )}
+
+
     </div>
   );
 }

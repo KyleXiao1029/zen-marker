@@ -45,6 +45,12 @@ const I18N = {
     sortByNameLength: 'Sort by Name Length',
     columns: (n: number) => `${n} Columns`,
     searchAction: (name: string) => `Search ${name}...`,
+    gridSize: 'Grid Size',
+    gridView: 'Grid View',
+    listView: 'List View',
+    renameFolder: 'Rename',
+    sort: 'Sort',
+    edit: 'Edit',
   },
   zh: {
     searchPlaceholder: '搜索书签...',
@@ -87,9 +93,15 @@ const I18N = {
     emptySearchEngines: '未配置搜索引擎',
     sortByNameAsc: '按名称排序 (A-Z)',
     sortByNameDesc: '按名称排序 (Z-A)',
-    sortByNameLength: '按名字长度排序',
+    sortByNameLength: '按视觉长度排序',
     columns: (n: number) => `${n} 列`,
     searchAction: (name: string) => `在 ${name} 搜索...`,
+    gridSize: '宫格大小',
+    gridView: '宫格视图',
+    listView: '列表视图',
+    renameFolder: '重命名',
+    sort: '排序',
+    edit: '编辑',
   }
 };
 
