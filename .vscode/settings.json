@@ -1,0 +1,72 @@
+{
+  "editor.bracketPairColorization.enabled": true, // 启用括号配色
+  "editor.bracketPairColorization.independentColorPoolPerBracketType": true, // 不同类型括号使用独立颜色
+  // 在保存代码时执行的操作
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit", // 只在明确执行“格式化命令”或“保存时手动触发格式化”时，才让 ESLint 自动修复问题
+    "source.organizeImports": "never" // 在保存时不要自动整理 import 语句。
+  },
+  "editor.defaultFormatter": "esbenp.prettier-vscode", // 设置默认格式化器 prettier
+  "editor.fontSize": 14, // 编辑器字体大小
+  "editor.formatOnPaste": true, // 格式化粘贴的代码
+  "editor.formatOnSave": false, // 在保存时格式化
+  "editor.guides.bracketPairs": "active", // 仅高亮当前括号对
+  "editor.guides.bracketPairsHorizontal": true, // 显示横向括号连接线（提升可读性）
+  "editor.insertSpaces": true, // 使用空格缩进
+  "editor.minimap.enabled": false, // 启用小地图
+  "editor.mouseWheelZoom": false, // 鼠标滚轮缩放
+  "editor.renderWhitespace": "all", // 显示所有空白字符
+  "editor.stickyScroll.enabled": false, // 禁用代码块粘性滚动
+  "editor.tabSize": 2, // 制表符等于的空格数
+  "editor.wordWrap": "on", // 自动换行
+
+  "explorer.compactFolders": false, // 禁用折叠文件夹
+
+  "files.autoSave": "onFocusChange", // 失去焦点自动保存
+  "files.eol": "\n", // 指定换行符为 LF（\n）
+
+  "gitlens.codeLens.enabled": false, // 禁用 gitlens 提示文件和代码块的 git 信息
+  "gitlens.views.scm.grouped.views": {
+    "commits": true,
+    "branches": false,
+    "remotes": false,
+    "stashes": false,
+    "tags": true,
+    "worktrees": true,
+    "contributors": true,
+    "fileHistory": true,
+    "repositories": true,
+    "searchAndCompare": true,
+    "launchpad": true
+  },
+
+  "prettier.enable": true, // 是否启用 prettier
+  // 要求项目中必须存在 Prettier 配置文件（如 .prettierrc）
+  // 没有配置文件时，VSCode 不会自动用默认规则格式化
+  // 用于避免不同项目间的格式化风格冲突
+  "prettier.requireConfig": true,
+
+  "typescript.tsdk": "node_modules/typescript/lib", // 使用工作区 TypeScript 版本
+
+  "vue.inlayHints.destructuredProps": true,
+
+  "workbench.colorCustomizations": {
+    "editorBracketHighlight.foreground1": "#FF5733",
+    "editorBracketHighlight.foreground2": "#33FF57",
+    "editorBracketHighlight.foreground3": "#3357FF",
+    "editorBracketHighlight.foreground4": "#FFD700",
+    "editorBracketHighlight.foreground5": "#20B2AA",
+    "editorBracketHighlight.foreground6": "#FF33A1",
+    "editorBracketHighlight.unexpectedBracket.foreground": "#FF0000",
+    "editorBracketHighlight.background1": "#FF573320",
+    "editorBracketHighlight.background2": "#33FF5720",
+    "editorBracketHighlight.background3": "#3357FF20"
+  },
+  "workbench.colorTheme": "One Dark Pro Mix", // 编辑器主题
+  "[vue]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+}
