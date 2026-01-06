@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   DndContext, 
   closestCenter,
@@ -20,6 +20,7 @@ import { BookmarkContent } from './BookmarkContent';
 import { BookmarkNode, SearchEngine } from './types';
 import { Modal } from '../components/Modal';
 import { SearchPopup } from './SearchPopup';
+import { MoveModal } from '../components/MoveModal';
 import { t, setLang, getLang } from '../utils/i18n';
 import './manager.css';
 import './overlay.css';
@@ -49,6 +50,7 @@ export default function Manager() {
   const [modalOpen, setModalOpen] = useState(false);
   const [searchPopupOpen, setSearchPopupOpen] = useState(false);
   const [modalConfig, setModalConfig] = useState<any>({});
+  const [moveModalOpen, setMoveModalOpen] = useState(false);
 
   // Menus
   const [langMenuOpen, setLangMenuOpen] = useState(false);
@@ -278,7 +280,7 @@ export default function Manager() {
       },
       {
         id: '3',
-        name: '百度',
+        name: '鐧惧害',
         url: 'https://www.baidu.com/s?wd={z}'
       }
     ];
@@ -785,6 +787,26 @@ export default function Manager() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedIds, nodes, currentFolderId, handleDeleteMultiple]);
 
+  const handleMoveConfirm = (targetId: string) => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+
+    let completed = 0;
+    const checkDone = () => {
+        completed++;
+        if (completed === ids.length) {
+            loadContent(currentFolderId);
+            loadTree();
+            setMoveModalOpen(false);
+            setSelectedIds(new Set());
+        }
+    };
+
+    ids.forEach(id => {
+        chrome.bookmarks.move(id, { parentId: targetId }, checkDone);
+    });
+  };
+
 
 
 
@@ -856,7 +878,7 @@ export default function Manager() {
                             setLangMenuOpen(!langMenuOpen);
                             setSortMenuOpen(false);
                         }}
-                        title={currentLang === 'en' ? 'Switch Language' : '切换语言'}
+                        title={currentLang === 'en' ? 'Switch Language' : '鍒囨崲璇█'}
                     >
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
                     </button>
@@ -867,7 +889,7 @@ export default function Manager() {
                                 English
                             </div>
                              <div className={`dropdown-item ${currentLang === 'zh' ? 'active' : ''}`} onClick={() => handleLangSelect('zh')}>
-                                中文
+                                涓枃
                             </div>
                         </div>
                     )}
@@ -1083,6 +1105,14 @@ export default function Manager() {
          {...modalConfig}
        />
 
+        <MoveModal 
+            isOpen={moveModalOpen}
+            onClose={() => setMoveModalOpen(false)}
+            onConfirm={handleMoveConfirm}
+            tree={tree}
+            selectedIds={selectedIds}
+        />
+
        {contextMenu && (
            <div 
                className="context-menu" 
@@ -1096,6 +1126,13 @@ export default function Manager() {
                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                    {t('edit') || "Edit"}
                </div>
+                <div className="context-menu-item" onClick={() => {
+                    setContextMenu(null);
+                    setMoveModalOpen(true);
+                }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 9l7-7 7 7"/><path d="M12 2v20"/></svg>
+                    {t('move')}
+                </div>
                <div className="context-menu-item danger" onClick={(e) => {
                    setContextMenu(null);
                    if (selectedIds.size > 1) {

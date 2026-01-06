@@ -51,6 +51,9 @@ const I18N = {
     renameFolder: 'Rename',
     sort: 'Sort',
     edit: 'Edit',
+    move: 'Move to...',
+    moveTo: 'Move to',
+    titleMove: 'Select Destination',
   },
   zh: {
     searchPlaceholder: '搜索书签...',
@@ -102,6 +105,9 @@ const I18N = {
     renameFolder: '重命名',
     sort: '排序',
     edit: '编辑',
+    move: '移动到...',
+    moveTo: '移动到',
+    titleMove: '选择目标文件夹',
   }
 };
 
