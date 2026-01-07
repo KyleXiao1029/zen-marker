@@ -854,6 +854,7 @@ export default function Manager() {
                        placeholder={t('searchPlaceholder')}
                        value={searchQuery}
                        onChange={e => setSearchQuery(e.target.value)}
+                        onKeyDown={(e) => e.stopPropagation()}
                    />
                </div>
                 <div className="view-options" style={{position: 'relative', display: 'flex', gap: '8px', alignItems: 'center'}}>
